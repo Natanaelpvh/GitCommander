@@ -85,5 +85,5 @@ Contribuições são bem-vindas! Sinta-se livre para abrir **issues**, enviar **
 ## 🌐 Autor
 
 Desenvolvido por **Natanael S. de Oliveira**  
-📫 Contato: [SeuEmail@exemplo.com]  
+📫 Contato: [rnh.personalizados@gmail.com]  
 🔗 Projeto pessoal sem fins lucrativos
