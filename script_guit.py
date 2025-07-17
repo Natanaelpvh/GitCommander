@@ -3,20 +3,76 @@ import subprocess
 import json
 
 
-class GitController:
+class GitConfig:
     """
-    Sistema completo para controle de versões com Git e autenticação SSH via GitHub.
-    Gera chave SSH, verifica ambiente, salva diretório selecionado e executa comandos Git com segurança.
+    Responsável por carregar e salvar configurações do caminho do projeto
+    em um arquivo JSON.
     """
-
     CONFIG_PATH = "config.json"
 
+    @staticmethod
+    def carregar():
+        """Carrega o caminho do projeto salvo em config.json."""
+        if os.path.exists(GitConfig.CONFIG_PATH):
+            try:
+                with open(GitConfig.CONFIG_PATH, 'r') as f:
+                    dados = json.load(f)
+                    if os.path.isdir(dados.get("projeto_path", "")):
+                        return dados["projeto_path"]
+            except Exception as e:
+                print("⚠️ Falha ao carregar configuração:", e)
+        return None
+
+    @staticmethod
+    def salvar(path):
+        """Salva o caminho do projeto atual em config.json."""
+        try:
+            with open(GitConfig.CONFIG_PATH, 'w') as f:
+                json.dump({"projeto_path": path}, f)
+        except Exception as e:
+            print("⚠️ Erro ao salvar configuração:", e)
+
+
+class GitSSH:
+    """
+    Responsável pela geração de chaves SSH e exibição da chave pública
+    para autenticação com o GitHub.
+    """
+    @staticmethod
+    def gerar_chave(email):
+        """
+        Gera uma nova chave SSH do tipo ed25519, se não existir.
+        Retorna o caminho da chave pública gerada.
+        """
+        ssh_path = os.path.expanduser("~/.ssh/id_ed25519")
+        if not os.path.exists(ssh_path):
+            subprocess.run(["ssh-keygen", "-t", "ed25519", "-C", email, "-f", ssh_path, "-N", ""])
+            print("✅ Chave SSH gerada.")
+        else:
+            print("🔐 Chave SSH já existe.")
+        return ssh_path + ".pub"
+
+    @staticmethod
+    def exibir_chave(pub_key_path):
+        """Exibe a chave pública gerada e orienta o usuário a adicioná-la no GitHub."""
+        with open(pub_key_path, 'r') as pub_file:
+            chave = pub_file.read()
+        print("\n📎 Copie e cole esta chave pública no seu GitHub:")
+        print(chave)
+        print("Acesse: https://github.com/settings/keys\n")
+        input("Pressione ENTER após adicionar a chave...")
+
+
+class GitController:
+    """
+    Controlador principal do sistema. Gerencia a interação com o usuário,
+    execução de comandos Git e operações de configuração e autenticação.
+    """
     def __init__(self):
-        """
-        Inicializa o sistema, carregando o último caminho do projeto (se salvo).
-        """
-        self.projeto_path = None
-        self.carregar_config()
+        """Inicializa o controlador e carrega as configurações salvas."""
+        self.projeto_path = GitConfig.carregar()
+        if self.projeto_path:
+            print(f"📂 Diretório restaurado: {self.projeto_path}")
         self.menu_opcoes = {
             "0": self.selecionar_diretorio,
             "1": self.detectar_mudancas,
@@ -28,60 +84,37 @@ class GitController:
             "7": self.configurar_ssh
         }
 
-    def carregar_config(self):
-        """Carrega diretório salvo anteriormente em config.json"""
-        if os.path.exists(self.CONFIG_PATH):
-            try:
-                with open(self.CONFIG_PATH, 'r') as f:
-                    dados = json.load(f)
-                    if os.path.isdir(dados.get("projeto_path", "")):
-                        self.projeto_path = dados["projeto_path"]
-                        print(f"📂 Diretório restaurado: {self.projeto_path}")
-            except Exception as e:
-                print("⚠️ Falha ao carregar configuração:", e)
-
-    def salvar_config(self):
-        """Salva diretório atual em config.json"""
-        try:
-            with open(self.CONFIG_PATH, 'w') as f:
-                json.dump({"projeto_path": self.projeto_path}, f)
-        except Exception as e:
-            print("⚠️ Erro ao salvar configuração:", e)
-
     def executar_comando(self, comando):
-        """Executa um comando Git no terminal dentro do diretório selecionado."""
+        """Executa um comando no terminal dentro do diretório selecionado."""
         if not self.projeto_path:
             print("⚠️ Selecione o diretório do projeto primeiro (opção 0).")
             return
         try:
-            resultado = subprocess.run(
-                comando, capture_output=True, text=True, check=True, cwd=self.projeto_path
-            )
+            resultado = subprocess.run(comando, capture_output=True, text=True, check=True, cwd=self.projeto_path)
             print(resultado.stdout)
         except subprocess.CalledProcessError as e:
             print("❌ Erro ao executar comando:")
             print(e.stderr)
 
-    def verificar_git_repo(self):
-        """Verifica se o diretório é um repositório Git válido."""
-        return os.path.isdir(os.path.join(self.projeto_path, ".git"))
-
     def selecionar_diretorio(self):
-        """Permite ao usuário selecionar o diretório local do projeto Git."""
+        """Permite selecionar o diretório do projeto Git local."""
         path = input("📁 Caminho do projeto (ex: C:/meu_projeto): ").strip()
         if os.path.isdir(path) and os.path.isdir(os.path.join(path, ".git")):
             self.projeto_path = path
-            self.salvar_config()
+            GitConfig.salvar(path)
             print(f"✅ Diretório definido: {self.projeto_path}")
         else:
             print("❌ Caminho inválido ou não é um repositório Git.")
 
     def detectar_mudancas(self):
-        """Exibe as mudanças não versionadas no repositório."""
+        """Mostra alterações não commitadas no projeto."""
         self.executar_comando(["git", "status"])
 
     def commit_push(self):
-        """Adiciona, comita e envia alterações para o repositório remoto."""
+        """
+        Adiciona arquivos, realiza commit com mensagem e envia alterações
+        para o repositório remoto.
+        """
         msg = input("📝 Mensagem do commit: ").strip()
         self.executar_comando(["git", "add", "."])
         self.executar_comando(["git", "commit", "-m", msg])
@@ -89,43 +122,28 @@ class GitController:
         self.executar_comando(["git", "push"])
 
     def git_pull(self):
-        """Atualiza o repositório local com as mudanças remotas."""
+        """Atualiza o projeto local com alterações do repositório remoto."""
         self.verificar_url_ssh()
         self.executar_comando(["git", "pull"])
 
     def criar_tag(self):
-        """Cria e envia uma nova tag de versão para o GitHub."""
+        """Cria e envia uma nova tag de versão para o repositório remoto."""
         tag = input("🏷 Nome da nova versão (ex: v1.0.0): ").strip()
         self.executar_comando(["git", "tag", tag])
         self.executar_comando(["git", "push", "origin", tag])
 
     def status(self):
-        """Exibe o status atual do repositório."""
+        """Exibe o status atual do repositório Git."""
         self.executar_comando(["git", "status"])
 
     def configurar_ssh(self):
         """
-        Gera nova chave SSH se necessário e instrui o usuário a cadastrar no GitHub.
-        Também atualiza a URL remota do projeto para usar o protocolo SSH.
+        Cria uma nova chave SSH (caso não exista), orienta o usuário a
+        cadastrá-la no GitHub e define a URL remota do repositório.
         """
-        ssh_path = os.path.expanduser("~/.ssh/id_ed25519")
-        pub_key_path = ssh_path + ".pub"
-
-        if not os.path.exists(ssh_path):
-            print("🔐 Gerando nova chave SSH...")
-            email = input("Digite seu e-mail GitHub: ").strip()
-            subprocess.run(["ssh-keygen", "-t", "ed25519", "-C", email, "-f", ssh_path, "-N", ""])
-            print("✅ Chave SSH gerada.")
-        else:
-            print("🔐 Chave SSH já existe.")
-
-        with open(pub_key_path, 'r') as pub_file:
-            chave = pub_file.read()
-
-        print("\n📎 Copie e cole esta chave pública no seu GitHub:")
-        print(chave)
-        print("Acesse: https://github.com/settings/keys\n")
-        input("Pressione ENTER após adicionar a chave...")
+        email = input("Digite seu e-mail GitHub: ").strip()
+        pub_key_path = GitSSH.gerar_chave(email)
+        GitSSH.exibir_chave(pub_key_path)
 
         if self.projeto_path:
             repo_ssh = input("🔗 Cole aqui a URL SSH do repositório (ex: git@github.com:user/repo.git): ")
@@ -135,13 +153,9 @@ class GitController:
             print("⚠️ Selecione o diretório primeiro.")
 
     def verificar_url_ssh(self):
-        """Garante que o repositório esteja configurado com SSH."""
+        """Verifica se o repositório está usando SSH em vez de HTTPS."""
         try:
-            resultado = subprocess.run(
-                ["git", "remote", "-v"],
-                capture_output=True, text=True, check=True,
-                cwd=self.projeto_path
-            )
+            resultado = subprocess.run(["git", "remote", "-v"], capture_output=True, text=True, check=True, cwd=self.projeto_path)
             if "https://" in resultado.stdout:
                 print("⚠️ Seu repositório está configurado com HTTPS.")
                 print("🔁 Recomenda-se trocar para SSH com a opção 7 (Configurar SSH).")
@@ -149,14 +163,14 @@ class GitController:
             print("Erro ao verificar URL remota:", e)
 
     def sair(self):
-        """Encerra o programa."""
+        """Encerra a execução do programa."""
         print("👋 Saindo...")
         exit()
 
     def mostrar_menu(self):
-        """Exibe o menu principal e trata as seleções."""
+        """Exibe o menu principal e aguarda ações do usuário."""
         while True:
-            print("\n===== GIT CONTROLLER (COMPLETO) =====")
+            print("\n===== GIT CONTROLLER (POO) =====")
             print("0 - Selecionar diretório do projeto")
             print("1 - Detectar mudanças")
             print("2 - Commit e Push")
@@ -165,9 +179,8 @@ class GitController:
             print("5 - Ver status")
             print("6 - Sair")
             print("7 - Configurar autenticação SSH")
-            print("======================================")
+            print("==================================")
             escolha = input("Escolha uma opção: ").strip()
-
             acao = self.menu_opcoes.get(escolha)
             if acao:
                 acao()
@@ -176,5 +189,4 @@ class GitController:
 
 
 if __name__ == "__main__":
-    app = GitController()
-    app.mostrar_menu()
+    GitController().mostrar_menu()
